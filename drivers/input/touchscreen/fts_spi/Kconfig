@@ -8,3 +8,11 @@ config TOUCHSCREEN_ST_FTS_V521_SPI
 
 	  To compile this driver as a module, choose M here: the
 
+config TOUCHSCREEN_FTS_SPI_XIAOMI_L12
+	bool "ST FTS Touchscreen Xiaomi L12 changes"
+	depends on TOUCHSCREEN_ST_FTS_V521_SPI
+	default n
+	help
+		Say Y here if you build for Xiaomi L12 (diting).
+
+		If unsure, say N.

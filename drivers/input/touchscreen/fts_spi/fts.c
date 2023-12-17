@@ -106,6 +106,10 @@ do { \
 	_i->event_dispatch_table[event_id(_evt)] = handler_name(_hnd); \
 } while (0)
 
+#ifdef CONFIG_TOUCHSCREEN_FTS_SPI_XIAOMI_L12
+#define L12_ID_DET (301+119)
+#endif
+
 #ifdef KERNEL_ABOVE_2_6_38
 #define TYPE_B_PROTOCOL
 #endif
@@ -191,6 +195,7 @@ void release_all_touches(struct fts_ts_info *info)
 		input_report_abs(info->input_dev, ABS_MT_TRACKING_ID, -1);
 		info->last_x[i] = info->last_y[i] = 0;
 	}
+
 	input_sync(info->input_dev);
 	input_report_key(info->input_dev, BTN_INFO, 0);
 	update_fod_press_status(0);
@@ -3335,20 +3340,34 @@ static ssize_t fts_fod_area_store(struct device *dev,
 	/*set 1 to bigarea fod */
 	if (temp == 1) {
 		info->big_area_fod = true;
+#ifndef CONFIG_TOUCHSCREEN_FTS_SPI_XIAOMI_L12
 		info->board->fod_lx = 342;
 		info->board->fod_ly = 1742;
 		info->board->fod_x_size = 396;
 		info->board->fod_y_size = 329;
+#else
+		info->board->fod_lx = 4960;
+		info->board->fod_ly = 23300;
+		info->board->fod_x_size = 2280;
+		info->board->fod_y_size = 2280;
+#endif
 		res = fts_write_dma_safe(big_area_cmd, ARRAY_SIZE(big_area_cmd));
 		if (res < OK)
 				logError(1, "%s %s: send big area cmd error\n", tag, __func__);
 	}
 	if (temp == 0) {
 		info->big_area_fod = false;
+#ifndef CONFIG_TOUCHSCREEN_FTS_SPI_XIAOMI_L12
 		info->board->fod_lx = 426;
 		info->board->fod_ly = 1803;
 		info->board->fod_x_size = 228;
 		info->board->fod_y_size = 228;
+#else
+		info->board->fod_lx = 4960;
+		info->board->fod_ly = 23300;
+		info->board->fod_x_size = 2280;
+		info->board->fod_y_size = 2280;
+#endif
 		res = fts_write_dma_safe(small_area_cmd, ARRAY_SIZE(small_area_cmd));
 		if (res < OK)
 				logError(1, "%s %s: send small area cmd error\n", tag, __func__);
@@ -5496,6 +5515,12 @@ int fts_chip_powercycle(struct fts_ts_info *info)
 		}
 	}
 
+#ifdef CONFIG_TOUCHSCREEN_FTS_SPI_XIAOMI_L12
+	if (info->board->avdd_gpio) {
+		gpio_direction_output(info->board->avdd_gpio, 0);
+	}
+#endif
+
 	if (info->avddold_reg) {
 		error = regulator_disable(info->avddold_reg);
 		if (error < 0) {
@@ -5527,6 +5552,12 @@ int fts_chip_powercycle(struct fts_ts_info *info)
 				 tag, __func__);
 		}
 	}
+
+#ifdef CONFIG_TOUCHSCREEN_FTS_SPI_XIAOMI_L12
+	if (info->board->avdd_gpio) {
+		gpio_direction_output(info->board->avdd_gpio, 1);
+	}
+#endif
 
 	mdelay(1);
 
@@ -7491,11 +7522,22 @@ static int fts_enable_reg(struct fts_ts_info *info, bool enable)
 
 	}
 
+#ifdef CONFIG_TOUCHSCREEN_FTS_SPI_XIAOMI_L12
+	if (info->board->avdd_gpio) {
+		gpio_direction_output(info->board->avdd_gpio, 1);
+	}
+#endif
+
 	return OK;
 
 disable_pwr_reg:
 	if (info->avdd_reg)
 		regulator_disable(info->avdd_reg);
+#ifdef CONFIG_TOUCHSCREEN_FTS_SPI_XIAOMI_L12
+	if (info->board->avdd_gpio) {
+		gpio_direction_output(info->board->avdd_gpio, 0);
+	}
+#endif
 
 disable_bus_reg:
 	if (info->vdd_reg)
@@ -7967,6 +8009,17 @@ static int parse_dt(struct device *dev, struct fts_hw_platform_data *bdata)
 		bdata->vdd_reg_name = name;
 		logError(0, "%s bus_reg_name = %s\n", tag, name);
 	}
+
+#ifdef CONFIG_TOUCHSCREEN_FTS_SPI_XIAOMI_L12
+	retval = of_get_named_gpio(np, "fts,avdd-gpio", 0);
+	if (retval < 0) {
+		logError(0,"%s can't find avdd-gpio[%d]\n",tag,retval);
+		bdata->avdd_gpio = 0;
+	} else {
+		logError(0,"%s get avdd-gpio[%d] from dt\n",tag, retval);
+		bdata->avdd_gpio = retval;
+	}
+#endif
 
 	if (of_property_read_bool(np, "fts,reset-gpio-enable")) {
 		bdata->reset_gpio = of_get_named_gpio_flags(np,
@@ -9393,7 +9446,11 @@ static int fts_remove(struct spi_device *client)
 */
 static struct of_device_id fts_of_match_table[] = {
 	{
+#ifndef CONFIG_TOUCHSCREEN_FTS_SPI_XIAOMI_L12
 	 .compatible = "st,spi",
+#else
+	.compatible = "xiaomi,l12-spi",
+#endif
 	 },
 	{},
 };
@@ -9433,6 +9490,18 @@ static struct spi_driver fts_spi_driver = {
 
 static int __init fts_driver_init(void)
 {
+#ifdef CONFIG_TOUCHSCREEN_FTS_SPI_XIAOMI_L12
+	int gpio_119;
+	gpio_direction_input(L12_ID_DET);
+	gpio_119 = gpio_get_value(L12_ID_DET);
+	logError(1, "%s gpio_119 = %d\n", tag, gpio_119);
+	if (!gpio_119){
+		logError(1,"%s TP is goodix\n",tag);
+		return 0;
+	} else {
+		logError(1,"%s TP is st 61y\n",tag);
+	}
+#endif
 #ifdef I2C_INTERFACE
 	return i2c_add_driver(&fts_i2c_driver);
 #else
